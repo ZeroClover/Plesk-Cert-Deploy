@@ -17,6 +17,12 @@ const (
 	moduleAcme  = "acme.sh"
 )
 
+type flagInfo struct {
+	long  string
+	short string
+	usage string
+}
+
 type options struct {
 	module       string
 	subscription string
@@ -29,17 +35,38 @@ type options struct {
 func parseFlags() (options, error) {
 	var opt options
 
-	flag.StringVar(&opt.module, "module", "", "Module preset for certificate paths (certd|acme.sh)")
-	flag.StringVar(&opt.module, "m", "", "Module preset for certificate paths (certd|acme.sh)")
-	flag.StringVar(&opt.subscription, "subscription", "", "Plesk subscription name or 'admin' for admin pool (required)")
-	flag.StringVar(&opt.subscription, "s", "", "Plesk subscription name or 'admin' for admin pool (required)")
-	flag.StringVar(&opt.name, "name", "", "Certificate name (required)")
-	flag.StringVar(&opt.name, "n", "", "Certificate name (required)")
-	flag.StringVar(&opt.pubPath, "pub", "", "Public certificate file path")
-	flag.StringVar(&opt.priPath, "pri", "", "Private key file path")
-	flag.StringVar(&opt.caPath, "ca", "", "CA certificate file path (optional)")
+	flagSet := flag.NewFlagSet(filepath.Base(os.Args[0]), flag.ContinueOnError)
+	flagSet.SetOutput(os.Stdout)
+	flagSet.StringVar(&opt.module, "module", "", "Module preset for certificate paths (certd|acme.sh)")
+	flagSet.StringVar(&opt.subscription, "subscription", "", "Plesk subscription name or 'admin' for admin pool (required)")
+	flagSet.StringVar(&opt.name, "name", "", "Certificate name (required)")
+	flagSet.StringVar(&opt.pubPath, "pub", "", "Public certificate file path")
+	flagSet.StringVar(&opt.priPath, "pri", "", "Private key file path")
+	flagSet.StringVar(&opt.caPath, "ca", "", "CA certificate file path (optional)")
 
-	flag.Parse()
+	flagSet.Usage = func() {
+		flags := []flagInfo{
+			{long: "subscription", short: "s", usage: "Plesk subscription name or 'admin' for admin pool (required)"},
+			{long: "name", short: "n", usage: "Certificate name (required)"},
+			{long: "module", short: "m", usage: "Module preset for certificate paths (certd|acme.sh)"},
+			{long: "pub", usage: "Public certificate file path"},
+			{long: "pri", usage: "Private key file path"},
+			{long: "ca", usage: "CA certificate file path (optional)"},
+		}
+
+		fmt.Fprintf(flagSet.Output(), "Usage of %s:\n", flagSet.Name())
+		for _, f := range flags {
+			if f.short != "" {
+				fmt.Fprintf(flagSet.Output(), "  --%s, -%s string\n    \t%s\n", f.long, f.short, f.usage)
+				continue
+			}
+			fmt.Fprintf(flagSet.Output(), "  --%s string\n    \t%s\n", f.long, f.usage)
+		}
+	}
+
+	if err := flagSet.Parse(normalizeArgs(os.Args[1:])); err != nil {
+		return opt, err
+	}
 
 	opt.module = strings.TrimSpace(opt.module)
 	opt.subscription = strings.TrimSpace(opt.subscription)
@@ -59,6 +86,39 @@ func parseFlags() (options, error) {
 	}
 
 	return opt, nil
+}
+
+func normalizeArgs(args []string) []string {
+	aliases := map[string]string{
+		"-s": "--subscription",
+		"-n": "--name",
+		"-m": "--module",
+	}
+
+	var out []string
+	for _, arg := range args {
+		if replacement, ok := aliases[arg]; ok {
+			out = append(out, replacement)
+			continue
+		}
+
+		replaced := false
+		for short, long := range aliases {
+			prefix := short + "="
+			if strings.HasPrefix(arg, prefix) {
+				out = append(out, long+arg[len(short):])
+				replaced = true
+				break
+			}
+		}
+		if replaced {
+			continue
+		}
+
+		out = append(out, arg)
+	}
+
+	return out
 }
 
 func resolvePaths(opt options) (certPath, keyPath, caPath string, err error) {
