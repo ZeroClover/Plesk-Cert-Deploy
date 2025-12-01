@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -202,16 +203,45 @@ func listCertificates(subscription string) (string, error) {
 }
 
 func certificateExists(output, name string) bool {
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if strings.Contains(line, name) {
+	for _, certName := range certificateNames(output) {
+		if certName == name {
 			return true
 		}
 	}
 	return false
+}
+
+func certificateNames(output string) []string {
+	var names []string
+	for _, line := range strings.Split(output, "\n") {
+		if name, ok := parseCertificateName(line); ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func parseCertificateName(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return "", false
+	}
+
+	fields := strings.Fields(line)
+	if len(fields) < 6 {
+		return "", false
+	}
+
+	if _, err := strconv.Atoi(fields[len(fields)-1]); err != nil {
+		return "", false
+	}
+
+	nameParts := fields[4 : len(fields)-1]
+	if len(nameParts) == 0 {
+		return "", false
+	}
+
+	return strings.Join(nameParts, " "), true
 }
 
 func deployCertificate(subscription, name, certPath, keyPath, caPath string, exists bool) (string, error) {
@@ -234,6 +264,10 @@ func deployCertificate(subscription, name, certPath, keyPath, caPath string, exi
 	}
 
 	return runPleskCommand(args)
+}
+
+func isCertificateMissingError(output string) bool {
+	return strings.Contains(output, "Unable to update certificate") && strings.Contains(output, "Certificate does not exist.")
 }
 
 func runPleskCommand(args []string) (string, error) {
@@ -280,14 +314,19 @@ func main() {
 	}
 
 	exists := certificateExists(listOutput, opt.name)
+	action := "create"
+	if exists {
+		action = "update"
+	}
 
 	deployOutput, err := deployCertificate(opt.subscription, opt.name, certPath, keyPath, caPath, exists)
+	if err != nil && exists && isCertificateMissingError(deployOutput) {
+		action = "create"
+		deployOutput, err = deployCertificate(opt.subscription, opt.name, certPath, keyPath, caPath, false)
+	}
+
 	if err != nil {
 		fmt.Fprint(os.Stderr, deployOutput)
-		action := "create"
-		if exists {
-			action = "update"
-		}
 		log.Fatalf("Failed to %s certificate: %v", action, err)
 	}
 
