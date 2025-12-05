@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	moduleCertd = "certd"
-	moduleAcme  = "acme.sh"
+	moduleCertd     = "certd"
+	moduleAcme      = "acme.sh"
+	moduleCertimate = "certimate"
 )
 
 type flagInfo struct {
@@ -38,7 +39,7 @@ func parseFlags() (options, error) {
 
 	flagSet := flag.NewFlagSet(filepath.Base(os.Args[0]), flag.ContinueOnError)
 	flagSet.SetOutput(os.Stdout)
-	flagSet.StringVar(&opt.module, "module", "", "Module preset for certificate paths (certd|acme.sh)")
+	flagSet.StringVar(&opt.module, "module", "", "Module preset for certificate paths (certd|acme.sh|certimate)")
 	flagSet.StringVar(&opt.subscription, "subscription", "", "Plesk subscription name or 'admin' for admin pool (required)")
 	flagSet.StringVar(&opt.name, "name", "", "Certificate name (required)")
 	flagSet.StringVar(&opt.pubPath, "pub", "", "Public certificate file path")
@@ -49,7 +50,7 @@ func parseFlags() (options, error) {
 		flags := []flagInfo{
 			{long: "subscription", short: "s", usage: "Plesk subscription name or 'admin' for admin pool (required)"},
 			{long: "name", short: "n", usage: "Certificate name (required)"},
-			{long: "module", short: "m", usage: "Module preset for certificate paths (certd|acme.sh)"},
+			{long: "module", short: "m", usage: "Module preset for certificate paths (certd|acme.sh|certimate)"},
 			{long: "pub", usage: "Public certificate file path"},
 			{long: "pri", usage: "Private key file path"},
 			{long: "ca", usage: "CA certificate file path (optional)"},
@@ -82,8 +83,8 @@ func parseFlags() (options, error) {
 	if opt.name == "" {
 		return opt, errors.New("missing required --name/-n")
 	}
-	if opt.module != "" && opt.module != moduleCertd && opt.module != moduleAcme {
-		return opt, fmt.Errorf("unsupported module '%s' (allowed: certd, acme.sh)", opt.module)
+	if opt.module != "" && opt.module != moduleCertd && opt.module != moduleAcme && opt.module != moduleCertimate {
+		return opt, fmt.Errorf("unsupported module '%s' (allowed: certd, acme.sh, certimate)", opt.module)
 	}
 
 	return opt, nil
@@ -148,6 +149,16 @@ func resolvePaths(opt options) (certPath, keyPath, caPath string, err error) {
 		}
 		if caPath == "" {
 			caPath = os.Getenv("CA_CERT_PATH")
+		}
+	case moduleCertimate:
+		if certPath == "" {
+			certPath = os.Getenv("CERTIMATE_DEPLOYER_CMDVAR_CERTIFICATE_PATH")
+		}
+		if keyPath == "" {
+			keyPath = os.Getenv("CERTIMATE_DEPLOYER_CMDVAR_PRIVATEKEY_PATH")
+		}
+		if caPath == "" {
+			caPath = os.Getenv("CERTIMATE_DEPLOYER_CMDVAR_CERTIFICATE_INTERMEDIA_PATH")
 		}
 	default:
 		return "", "", "", fmt.Errorf("unsupported module '%s'", opt.module)
